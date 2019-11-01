@@ -1,0 +1,85 @@
+---
+# defaults file for monitoring_stack
+## role vars
+from_files: true
+from_git: false
+git_repo: https://github.com/hatifnatt/monitoring_stack.git
+# do not restart service on any changes
+skip_restart: false
+# manage htpasswd or not, passlib will be installed as prerequisite
+manage_htpasswd: true
+
+## proxy stack
+nginx_proxy_tag: latest
+le_companion_tag: latest
+# about Ansible file search paths
+# https://docs.ansible.com/ansible/latest/user_guide/playbook_pathing.html
+src_folder: monitoring
+dest_folder: /opt/monitoring
+default_email: ''
+
+## zabbix stack
+postgres_tag: 12
+zabbix_server_tag: ubuntu-4.4.1
+zabbix_web_tag: ubuntu-4.4.1
+postgres_password: postgres
+postgres_password_file: /run/secrets/POSTGRES_PASSWORD
+# file on remote fs where to store password, not same thing as environment var POSTGRES_PASSWORD_FILE
+postgres_passfile: "{{ dest_folder }}/zabbix/postgres.pass"
+postgres_env: |
+    # Before using custom locale it must be added to image, see postgres/build/Dockerfile
+    # initdb will use provided env values during cluster init.
+    LANG=ru_RU.UTF-8
+    LC_COLLATE=ru_RU.UTF-8
+    LC_CTYPE=ru_RU.UTF-8
+    LC_MESSAGES=en_US.UTF-8
+    LC_MONETARY=ru_RU.UTF-8
+    LC_NUMERIC=ru_RU.UTF-8
+    LC_TIME=ru_RU.UTF-8
+db_server_host: postgres-server
+zabbix_db: zabbix
+zabbix_dbuser: zabbix
+zabbix_dbpassword: zabbix
+zabbix_dbpassword_file: /run/secrets/ZABBIX_DBPASSWORD
+# file on remote fs where to store password, not same thing as environment var ZABBIX_DBPASSWORD_FILE
+zabbix_passfile: "{{ dest_folder }}/zabbix/zabbix.pass"
+zabbix_ro_dbuser: grafana
+zabbix_ro_dbpassword: grafana
+zabbix_vhost: ''
+zabbix_vhost_le: ''
+zbx_server_host: zabbix-server
+zabbix_htpasswd: []
+# zabbix_htpasswd:
+#   - user: zabbix
+#     pass: zabbix
+php_tz: Etc/UTC
+
+## promgraf stack
+grafana_tag: '6.4.3'
+prometheus_tag: 'v2.13.1'
+prometheus_scheme: http
+prometheus_vhost: ''
+prometheus_vhost_le: ''
+prometheus_htpasswd: []
+# prometheus_htpasswd:
+#   - user: prometheus
+#     pass: prometheus
+zabbix_api_user: Admin
+zabbix_api_pass: zabbix
+grafana_env: |
+    GF_SECURITY_ADMIN_PASSWORD__FILE=/run/secrets/GRAFANA_ADMIN_PASSWORD
+    GF_USERS_ALLOW_SIGN_UP=false
+    GF_INSTALL_PLUGINS=alexanderzobnin-zabbix-app
+    # disable basic auth integration, that will allow
+    # to have separate basic auth credentials
+    GF_AUTH_BASIC_ENABLED=false
+grafana_scheme: http
+grafana_vhost: ''
+grafana_vhost_le: ''
+# Grafana admin password
+grafana_password: grafana
+grafana_passfile: "{{ dest_folder }}/promgraf/grafana.pass"
+grafana_htpasswd: []
+# grafana_htpasswd:
+#   - user: grafana
+#     pass: grafana

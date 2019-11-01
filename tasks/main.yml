@@ -1,0 +1,241 @@
+---
+# tasks file for monitoring_stack
+- name: Install prerequisites
+  apt:
+    name:
+      - python-passlib
+    state: present
+  when: manage_htpasswd
+  tags:
+    - prepare
+    - deploy
+
+- name: Copy files
+  synchronize:
+    src: "{{ src_folder }}/"
+    dest: "{{ dest_folder }}/"
+    rsync_opts:
+      - "--no-motd"
+      - "--exclude=.git*"
+  when: from_files
+  tags:
+    - deploy
+
+- name: Clone from Git
+  git:
+    repo: "{{ git_repo }}"
+    dest: "{{ dest_folder }}"
+    version: master
+    clone: true
+    update: true
+    accept_hostkey: true
+  when: from_git
+  tags:
+    - deploy
+
+- name: Configure Proxy stack
+  tags:
+    - proxy
+  block:
+    - name: create proxy stack '.env' file
+      copy:
+        content: |
+            NGINX_PROXY_TAG={{ nginx_proxy_tag }}
+            LE_COMPANION_TAG={{ le_companion_tag }}
+        dest: "{{ dest_folder }}/proxy/.env"
+        mode: '0664'
+      notify: restart proxy stack
+      tags:
+        - env
+    - name: create proxy stack 'le-companion.env' file
+      copy:
+        content: |
+            DEFAULT_EMAIL={{ default_email }}
+        dest: "{{ dest_folder }}/proxy/le-companion.env"
+        mode: '0664'
+      failed_when: not default_email
+      notify: restart proxy stack
+      tags:
+        - env
+
+- name: Configure Zabbix stack
+  tags:
+    - zabbix
+  block:
+    - name: create zabbix stack '.env' file
+      copy:
+        content: |
+            POSTGRES_TAG={{ postgres_tag }}
+            ZABBIX_SERVER_TAG={{ zabbix_server_tag }}
+            ZABBIX_WEB_TAG={{ zabbix_web_tag }}
+            POSTGRES_PASSWORD_FILE={{ postgres_password_file }}
+            ZABBIX_DB={{ zabbix_db }}
+            ZABBIX_DBUSER={{ zabbix_dbuser }}
+            ZABBIX_DBPASSWORD_FILE={{ zabbix_dbpassword_file }}
+            ZABBIX_RO_DBUSER={{ zabbix_ro_dbuser }}
+            ZABBIX_RO_DBPASSWORD={{ zabbix_ro_dbpassword }}
+            DB_SERVER_HOST={{ db_server_host }}
+            ZABBIX_VHOST={{ zabbix_vhost }}
+            ZABBIX_VHOST_LE={{ zabbix_vhost_le }}
+            ZBX_SERVER_HOST={{ zbx_server_host }}
+            PHP_TZ={{ php_tz }}
+        dest: "{{ dest_folder }}/zabbix/.env"
+        mode: '0664'
+      notify: restart zabbix stack
+      tags:
+        - env
+    - name: create 'postgres.env' file
+      copy:
+        content: "{{ postgres_env }}"
+        dest: "{{ dest_folder }}/zabbix/postgres.env"
+        mode: '0664'
+      notify: restart zabbix stack
+      tags:
+        - env
+    - name: create 'zabbix.env' file
+      copy:
+        content: ''
+        dest: "{{ dest_folder }}/zabbix/zabbix.env"
+        mode: '0664'
+      notify: restart zabbix stack
+      tags:
+        - env
+    - name: create postgres pass file
+      copy:
+        content: "{{ postgres_password }}\n"
+        dest: "{{ postgres_passfile }}"
+        # those looks totally wrong but otherwise secret can't be read inside container
+        # find right uid?
+        mode: '0664'
+      notify: restart zabbix stack
+      tags:
+        - pass
+    - name: create zabbix pass file file
+      copy:
+        content: "{{ zabbix_dbpassword }}\n"
+        dest: "{{ zabbix_passfile }}"
+        # those looks totally wrong but otherwise secret can't be read inside container
+        # find right uid?
+        mode: '0664'
+      notify: restart zabbix stack
+      tags:
+        - pass
+    - name: create htpasswd for zabbix
+      htpasswd:
+        path: "{{ dest_folder }}/proxy/nginx/htpasswd/{{ zabbix_vhost }}"
+        create: true
+        name: "{{ item.user }}"
+        password: "{{ item.pass }}"
+        mode: 0644
+      loop: "{{ zabbix_htpasswd }}"
+      # don't run in check mode to mitigate error when target file not present
+      # https://github.com/ansible/ansible/issues/61185
+      when: manage_htpasswd and zabbix_vhost and zabbix_htpasswd and not ansible_check_mode
+      notify: restart proxy stack
+      tags:
+        - htpasswd
+
+
+- name: Configure PromGraf stack
+  tags:
+    - promgraf
+  block:
+    - name: create promgraf stack '.env' file
+      copy:
+        content: |
+            GRAFANA_TAG={{ grafana_tag }}
+            PROMETHEUS_TAG={{ prometheus_tag }}
+            GRAFANA_SCHEME={{ grafana_scheme }}
+            GRAFANA_VHOST={{ grafana_vhost }}
+            GRAFANA_VHOST_LE={{ grafana_vhost_le }}
+            ZABBIX_API_USER={{ zabbix_api_user }}
+            ZABBIX_API_PASS={{ zabbix_api_pass }}
+            ZABBIX_DB={{ zabbix_db }}
+            ZABBIX_RO_DBUSER={{ zabbix_ro_dbuser }}
+            ZABBIX_RO_DBPASSWORD={{ zabbix_ro_dbpassword }}
+            PROMETHEUS_SCHEME={{ prometheus_scheme }}
+            PROMETHEUS_VHOST={{ prometheus_vhost }}
+            PROMETHEUS_VHOST_LE={{ prometheus_vhost_le }}
+        dest: "{{ dest_folder }}/promgraf/.env"
+        mode: '0664'
+      notify: restart promgraf stack
+      tags:
+        - env
+    - name: create 'grafana.env' file
+      copy:
+        content: "{{ grafana_env }}"
+        dest: "{{ dest_folder }}/promgraf/grafana.env"
+        mode: '0664'
+      notify: restart promgraf stack
+      tags:
+        - env
+    - name: create grafana pass file
+      copy:
+        content: "{{ grafana_password }}\n"
+        dest: "{{ grafana_passfile }}"
+        # grafan user id
+        owner: '472'
+        mode: '0660'
+      notify: restart promgraf stack
+      tags:
+        - pass
+    - name: create htpasswd for prometheus
+      htpasswd:
+        path: "{{ dest_folder }}/proxy/nginx/htpasswd/{{ prometheus_vhost }}"
+        create: true
+        name: "{{ item.user }}"
+        password: "{{ item.pass }}"
+        mode: 0644
+      loop: "{{ prometheus_htpasswd }}"
+      # don't run in check mode to mitigate error when target file not present
+      # https://github.com/ansible/ansible/issues/61185
+      when: manage_htpasswd and prometheus_vhost and prometheus_htpasswd and not ansible_check_mode
+      notify: restart proxy stack
+      tags:
+        - htpasswd
+    - name: create htpasswd for grafana
+      htpasswd:
+        path: "{{ dest_folder }}/proxy/nginx/htpasswd/{{ grafana_vhost }}"
+        create: true
+        name: "{{ item.user }}"
+        password: "{{ item.pass }}"
+        mode: 0644
+      loop: "{{ grafana_htpasswd }}"
+      # don't run in check mode to mitigate error when target file not present
+      # https://github.com/ansible/ansible/issues/61185
+      when: manage_htpasswd and grafana_vhost and grafana_htpasswd and not ansible_check_mode
+      notify: restart proxy stack
+      tags:
+        - htpasswd
+
+# Write additional Prometheus config files, optional
+# TBD
+
+# Install systemd service and order configs
+- name: Systemd stuff
+  tags:
+    - systemd
+  block:
+    - name: install systemd files
+      copy:
+        src: "{{ dest_folder }}/helpers/systemd/"
+        dest: "/etc/systemd/system/"
+        mode: 644
+        remote_src: true
+      tags:
+        - install
+    # Ansible 2.8 and above
+    - name: reload systemd
+      systemd:
+        daemon_reload: yes
+    - name: "start systemd service"
+      systemd:
+        name: "monitoring@{{ item }}"
+        state: started
+        enabled: yes
+        masked: no
+      loop:
+        - proxy
+        - zabbix
+        - promgraf
+        - exporters

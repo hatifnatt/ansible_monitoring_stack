@@ -1,0 +1,25 @@
+---
+# handlers file for monitoring_stack
+- name: restart proxy stack
+  service:
+    name: monitoring@proxy
+    state: restarted
+  when: not skip_restart
+
+- name: restart zabbix stack
+  service:
+    name: monitoring@zabbix
+    state: restarted
+  when: not skip_restart
+
+- name: restart promgraf stack
+  service:
+    name: monitoring@promgraf
+    state: restarted
+  when: not skip_restart
+
+- name: restart exporters stack
+  service:
+    name: monitoring@exporters
+    state: restarted
+  when: not skip_restart
